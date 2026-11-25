@@ -1,0 +1,82 @@
+<!-- Guided Replies — Settings drawer (shown in Extensions panel) -->
+<div class="gr-settings-drawer inline-drawer">
+    <div class="inline-drawer-toggle inline-drawer-header">
+        <b>Guided Replies</b>
+        <small style="margin-left:6px;opacity:0.6">
+            — steer AI responses with a guidance prompt
+        </small>
+        <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
+    </div>
+    <div class="inline-drawer-content">
+
+        <!-- Enable / Disable -->
+        <div class="gr-field-row">
+            <label class="checkbox_label">
+                <input id="gr-toggle" type="checkbox" />
+                Enable Guidance
+            </label>
+            <small class="gr-hint">
+                When ON, the guidance prompt is injected before every generation.
+            </small>
+        </div>
+
+        <hr />
+
+        <!-- Mode selector -->
+        <div class="gr-field-row">
+            <label class="gr-label">Mode</label>
+            <div class="gr-radio-group">
+                <label class="radio_label">
+                    <input type="radio" name="gr-mode" id="gr-mode-send" value="send" checked />
+                    <span title="Inject guidance to steer the AI's next response">🗨️ Send</span>
+                </label>
+                <label class="radio_label">
+                    <input type="radio" name="gr-mode" id="gr-mode-regen" value="regenerate" />
+                    <span title="Use first message as quality reference + guidance to fix">🔄 Regenerate</span>
+                </label>
+            </div>
+            <small class="gr-hint">
+                <strong>Send:</strong> Injects the guidance prompt to steer the next response.<br />
+                <strong>Regenerate:</strong> Uses the chat's first message as a style/quality
+                reference and applies your guidance to fix the current response.
+            </small>
+        </div>
+
+        <hr />
+
+        <!-- Prompt textarea -->
+        <div class="gr-field-row">
+            <label class="gr-label" for="gr-prompt">Guidance Prompt</label>
+            <textarea id="gr-prompt" class="textarea_compact" rows="3"
+                placeholder="E.g.: Make the character speak more formally and use Victorian-era vocabulary."
+            ></textarea>
+            <small class="gr-hint">
+                Write instructions for what you want the AI to do differently.
+                In <strong>Regenerate</strong> mode, the first message is automatically
+                used as a quality reference.
+            </small>
+        </div>
+
+        <!-- Presets -->
+        <div class="gr-field-row">
+            <label class="gr-label">Presets</label>
+            <div id="gr-preset-list" class="gr-preset-list"></div>
+            <button id="gr-save-preset" class="menu_button gr-save-btn">
+                <i class="fa-solid fa-floppy-disk"></i> Save Current as Preset
+            </button>
+        </div>
+
+    </div>
+</div>
+
+<!-- Compact quick-access bar template (cloned into the chat area) -->
+<div id="gr-compact-bar-template" style="display:none;">
+    <div id="gr-compact-bar" class="gr-compact-bar">
+        <span class="gr-compact-toggle fa-solid fa-toggle-off" title="Toggle guidance"></span>
+        <span class="gr-compact-mode" title="Current mode">🗨️</span>
+        <span class="gr-compact-badge" title="Active guidance prompt"></span>
+        <span class="gr-compact-open menu_button" title="Open settings">
+            <i class="fa-solid fa-gear"></i>
+        </span>
+    </div>
+</div>
