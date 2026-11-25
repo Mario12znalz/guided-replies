@@ -320,7 +320,7 @@ async function registerSlashCommands() {
 }
 
 // ---------------------------------------------------------------------------
-// UI — Compact Bar (above send)
+// UI — Compact Bar (above send)  — presets dropdown + inline input
 // ---------------------------------------------------------------------------
 
 async function injectCompactBar() {
@@ -328,19 +328,47 @@ async function injectCompactBar() {
 
     const $bar = $(`
         <div class="gr-compact-bar">
-            <span class="gr-compact-toggle fa-solid fa-toggle-off" title="Toggle guidance"></span>
-            <span class="gr-compact-mode" title="Current mode">🗨️</span>
-            <span class="gr-compact-preset" style="display:none"></span>
-            <span class="gr-compact-badge" style="display:none" title="Active guidance prompt"></span>
+            <span class="gr-compact-toggle fa-solid fa-toggle-off" title="Ligar/desligar guidance"></span>
+            <span class="gr-compact-mode" title="Modo actual">🗨️</span>
+            <select class="gr-preset-dropdown" title="Escolher preset">
+                <option value="">— Preset —</option>
+                <option value="__custom__">✏️ Custom</option>
+            </select>
+            <span class="gr-compact-badge" style="display:none" title="Prompt activo"></span>
             <div class="gr-compact-input-wrap" style="display:none">
-                <input type="text" class="gr-compact-input" placeholder="Type guidance and press Enter…"
-                       maxlength="500" />
+                <input type="text" class="gr-compact-input" placeholder="Escreve o guidance e carrega Enter…" maxlength="500" />
             </div>
-            <span class="gr-compact-open" title="Open settings"><i class="fa-solid fa-gear"></i></span>
+            <button class="gr-compact-save-preset menu_button" title="Guardar prompt actual como preset">💾</button>
+            <span class="gr-compact-open" title="Abrir definições"><i class="fa-solid fa-gear"></i></span>
         </div>
     `);
 
-    // Events
+    // Populate preset dropdown
+    function refreshDropdown() {
+        const s = loadSettings();
+        const $sel = $bar.find('.gr-preset-dropdown');
+        const currentVal = $sel.val();
+        $sel.find('option[value!=""][value!="__custom__"]').remove();
+        const fragment = document.createDocumentFragment();
+        (s.presets || []).forEach(p => {
+            const opt = document.createElement('option');
+            opt.value = p.name;
+            opt.textContent = p.mode === 'send' ? '🗨️ ' : '🔄 ';
+            opt.textContent += p.name;
+            fragment.appendChild(opt);
+        });
+        // Re-select the right option
+        if (s.activePreset && s.presets.find(x => x.name === s.activePreset)) {
+            $sel.val(s.activePreset);
+        } else if (s.prompt && s.enabled) {
+            $sel.val('__custom__');
+        } else {
+            $sel.val('');
+        }
+        $sel.append(fragment);
+    }
+
+    // Toggle ON/OFF
     $bar.on('click', '.gr-compact-toggle', () => {
         const s = loadSettings();
         s.enabled = !s.enabled;
@@ -350,6 +378,42 @@ async function injectCompactBar() {
         toastr.info(s.enabled ? 'Guidance ON' : 'Guidance OFF');
     });
 
+    // Preset dropdown change
+    $bar.on('change', '.gr-preset-dropdown', function () {
+        const val = $(this).val();
+        if (!val) {
+            // "— Preset —" selected = desligar
+            const s = loadSettings();
+            s.enabled = false;
+            s.activePreset = null;
+            saveSettingsDebounced();
+            updateUIFromSettings();
+            return;
+        }
+        if (val === '__custom__') {
+            // Focar o input inline
+            $bar.find('.gr-compact-input-wrap').show();
+            $bar.find('.gr-compact-input').focus();
+            return;
+        }
+        applyPreset(val);
+    });
+
+    // Save current as preset
+    $bar.on('click', '.gr-compact-save-preset', async function () {
+        const s = loadSettings();
+        if (!s.prompt || !s.prompt.trim()) {
+            toastr.warning('Escreve um prompt primeiro.');
+            return;
+        }
+        const { Popup } = getCtx();
+        const name = await Popup.show.input('Guardar preset', 'Nome do preset:', '');
+        if (!name) return;
+        await saveCurrentAsPreset(name);
+        refreshDropdown();
+    });
+
+    // Gear → open settings
     $bar.on('click', '.gr-compact-open', () => {
         const $toggle = $('#gr-settings-drawer .inline-drawer-toggle');
         if ($toggle.length) {
@@ -370,7 +434,8 @@ async function injectCompactBar() {
                 s.activePreset = null;
                 saveSettingsDebounced();
                 updateUIFromSettings();
-                toastr.success('Guidance updated from quick bar');
+                refreshDropdown();
+                toastr.success('Guidance actualizado');
             }
         }
     });
@@ -380,10 +445,50 @@ async function injectCompactBar() {
     if ($target.length) {
         $target.before($bar);
     } else {
-        // Fallback: use the chat wrapper
         const $chat = $('#chat');
         if ($chat.length) $chat.after($bar);
     }
+
+    // Update compact bar also refreshes the dropdown
+    const origUpdate = updateCompactBar;
+    updateCompactBar = function () {
+        const s = loadSettings();
+        const $b = $('.gr-compact-bar');
+        if (!$b.length) return;
+        $b.toggleClass('gr-active', s.enabled);
+        $b.find('.gr-compact-toggle')
+            .toggleClass('fa-toggle-on', s.enabled)
+            .toggleClass('fa-toggle-off', !s.enabled);
+        $b.find('.gr-compact-mode').text(s.mode === 'send' ? '🗨️' : '🔄');
+
+        const $badge = $b.find('.gr-compact-badge');
+        const $inputWrap = $b.find('.gr-compact-input-wrap');
+        const $input = $b.find('.gr-compact-input');
+        const $dropdown = $b.find('.gr-preset-dropdown');
+
+        refreshDropdown();
+
+        if (s.enabled && s.prompt) {
+            const truncated = s.prompt.length > 60 ? s.prompt.slice(0, 60) + '…' : s.prompt;
+            $badge.text(truncated).show();
+            $inputWrap.hide();
+            // Select preset in dropdown if active
+            if (s.activePreset) {
+                $dropdown.val(s.activePreset);
+            } else {
+                $dropdown.val('__custom__');
+            }
+        } else if (s.enabled) {
+            $badge.hide();
+            $inputWrap.show();
+            $input.focus();
+            $dropdown.val('__custom__');
+        } else {
+            $badge.hide();
+            $inputWrap.hide();
+            $dropdown.val('');
+        }
+    };
 }
 
 // ---------------------------------------------------------------------------
