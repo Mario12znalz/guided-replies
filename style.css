@@ -6,29 +6,31 @@
 .gr-compact-bar {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
     padding: 4px 10px;
     margin: 4px 0 6px 0;
     border-radius: var(--border-radius, 8px);
-    background: rgba(128, 128, 128, 0.08);
-    border: 1px solid var(--border, rgba(128,128,128,0.2));
+    background: rgba(128, 128, 128, 0.06);
+    border: 1px solid var(--border, rgba(128,128,128,0.15));
     font-size: 0.85em;
     cursor: default;
-    transition: background 0.15s ease, opacity 0.15s ease;
+    transition: background 0.15s ease, opacity 0.15s ease, border-color 0.15s ease;
     opacity: 0.65;
+    min-height: 28px;
 }
 
 .gr-compact-bar.gr-active {
     opacity: 1;
-    background: rgba(100, 180, 255, 0.08);
+    background: rgba(100, 180, 255, 0.06);
     border-color: var(--accent, #5b9bd5);
 }
 
 .gr-compact-toggle {
-    font-size: 1.3em;
+    font-size: 1.2em;
     cursor: pointer;
     color: var(--muted-foreground, #888);
     transition: color 0.15s ease;
+    flex-shrink: 0;
 }
 
 .gr-active .gr-compact-toggle {
@@ -36,12 +38,25 @@
 }
 
 .gr-compact-toggle:hover {
-    color: var(--accent, #5b9bd5);
+    color: var(--accent, #5b9bd5) !important;
 }
 
 .gr-compact-mode {
-    font-size: 1.1em;
+    font-size: 1em;
     line-height: 1;
+    flex-shrink: 0;
+}
+
+.gr-compact-preset {
+    font-size: 0.85em;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: rgba(128,128,128,0.1);
+    flex-shrink: 0;
+    max-width: 120px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .gr-compact-badge {
@@ -50,24 +65,50 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     color: var(--muted-foreground, #888);
-    font-size: 0.9em;
+    font-size: 0.85em;
     padding: 2px 8px;
-    background: rgba(128,128,128,0.1);
+    background: rgba(128,128,128,0.06);
     border-radius: 4px;
-    max-width: 280px;
 }
 
 .gr-active .gr-compact-badge {
+    color: var(--foreground, #ccc);
+    background: rgba(100,180,255,0.08);
+}
+
+.gr-compact-input-wrap {
+    flex: 1;
+    display: flex;
+}
+
+.gr-compact-input {
+    width: 100%;
+    background: rgba(0,0,0,0.15);
+    border: 1px solid var(--border, rgba(128,128,128,0.2));
+    border-radius: 4px;
+    padding: 3px 8px;
+    font-size: 0.85em;
     color: var(--foreground, #eee);
-    background: rgba(100,180,255,0.12);
+    outline: none;
+    transition: border-color 0.12s ease;
+}
+
+.gr-compact-input:focus {
+    border-color: var(--accent, #5b9bd5);
+}
+
+.gr-compact-input::placeholder {
+    color: var(--muted-foreground, #666);
+    font-style: italic;
 }
 
 .gr-compact-open {
     cursor: pointer;
-    font-size: 0.9em;
+    font-size: 0.85em;
     padding: 2px 6px;
-    opacity: 0.6;
+    opacity: 0.45;
     transition: opacity 0.15s ease;
+    flex-shrink: 0;
 }
 
 .gr-compact-open:hover {
@@ -80,27 +121,6 @@
 
 .gr-field-row {
     margin-bottom: 12px;
-}
-
-.gr-field-row hr {
-    margin: 12px 0;
-    border: none;
-    border-top: 1px solid var(--border, rgba(128,128,128,0.15));
-}
-
-.gr-label {
-    display: block;
-    font-weight: 600;
-    margin-bottom: 4px;
-    font-size: 0.95em;
-}
-
-.gr-hint {
-    display: block;
-    margin-top: 4px;
-    font-size: 0.82em;
-    opacity: 0.6;
-    line-height: 1.4;
 }
 
 .gr-radio-group {
@@ -121,6 +141,21 @@
     accent-color: var(--accent, #5b9bd5);
 }
 
+.gr-label {
+    display: block;
+    font-weight: 600;
+    margin-bottom: 4px;
+    font-size: 0.95em;
+}
+
+.gr-hint {
+    display: block;
+    margin-top: 4px;
+    font-size: 0.82em;
+    opacity: 0.55;
+    line-height: 1.4;
+}
+
 #gr-prompt {
     width: 100%;
     resize: vertical;
@@ -133,7 +168,7 @@
 /* Preset list */
 .gr-preset-list {
     margin-bottom: 8px;
-    max-height: 180px;
+    max-height: 200px;
     overflow-y: auto;
     display: flex;
     flex-direction: column;
@@ -143,21 +178,21 @@
 .gr-preset-item {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    padding: 4px 8px;
+    gap: 6px;
+    padding: 5px 8px;
     border-radius: 4px;
     cursor: pointer;
     font-size: 0.88em;
     transition: background 0.1s ease;
-    background: rgba(128,128,128,0.04);
+    background: rgba(128,128,128,0.03);
 }
 
 .gr-preset-item:hover {
-    background: rgba(128,128,128,0.1);
+    background: rgba(128,128,128,0.08);
 }
 
 .gr-preset-item.gr-preset-active {
-    background: rgba(100, 180, 255, 0.12);
+    background: rgba(100, 180, 255, 0.1);
     border-left: 2px solid var(--accent, #5b9bd5);
 }
 
@@ -173,17 +208,25 @@
     white-space: nowrap;
 }
 
+.gr-preset-mode-badge {
+    font-size: 0.8em;
+    opacity: 0.5;
+    flex-shrink: 0;
+}
+
 .gr-preset-actions {
     display: flex;
-    gap: 6px;
-    margin-left: 8px;
+    gap: 4px;
+    flex-shrink: 0;
 }
 
 .gr-preset-actions span {
     cursor: pointer;
-    opacity: 0.5;
-    transition: opacity 0.1s ease;
-    font-size: 0.9em;
+    opacity: 0.4;
+    transition: opacity 0.1s ease, color 0.1s ease;
+    font-size: 0.85em;
+    padding: 1px 3px;
+    border-radius: 3px;
 }
 
 .gr-preset-actions span:hover {
@@ -191,14 +234,13 @@
 }
 
 .gr-preset-apply {
-    color: var(--accent, #5b9bd5);
+    color: var(--accent, #5b9bd5) !important;
 }
 
-.gr-preset-del {
-    color: #e74c3c;
+.gr-preset-del:hover {
+    color: #e74c3c !important;
 }
 
 .gr-save-btn {
     font-size: 0.85em;
-    margin-top: 4px;
 }

@@ -60,23 +60,15 @@
         <!-- Presets -->
         <div class="gr-field-row">
             <label class="gr-label">Presets</label>
+            <small class="gr-hint" style="margin-top:0;margin-bottom:6px;">
+                Use <code>/guide preset &lt;name&gt;</code> in chat to switch.
+                Use <code>/guide save &lt;name&gt;</code> to save the current prompt as a preset.
+            </small>
             <div id="gr-preset-list" class="gr-preset-list"></div>
             <button id="gr-save-preset" class="menu_button gr-save-btn">
                 <i class="fa-solid fa-floppy-disk"></i> Save Current as Preset
             </button>
         </div>
 
-    </div>
-</div>
-
-<!-- Compact quick-access bar template (cloned into the chat area) -->
-<div id="gr-compact-bar-template" style="display:none;">
-    <div id="gr-compact-bar" class="gr-compact-bar">
-        <span class="gr-compact-toggle fa-solid fa-toggle-off" title="Toggle guidance"></span>
-        <span class="gr-compact-mode" title="Current mode">🗨️</span>
-        <span class="gr-compact-badge" title="Active guidance prompt"></span>
-        <span class="gr-compact-open menu_button" title="Open settings">
-            <i class="fa-solid fa-gear"></i>
-        </span>
     </div>
 </div>

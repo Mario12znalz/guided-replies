@@ -13,12 +13,11 @@ const EXTENSION_FOLDER = 'scripts/extensions/third-party/guided-replies';
 
 const DEFAULT_SETTINGS = Object.freeze({
     enabled: false,
-    mode: 'send',                // 'send' | 'regenerate'
+    mode: 'send',
     prompt: '',
-    presets: [],                 // [{name, prompt, mode}]
+    presets: [],
     activePreset: null,
     showQuickBar: true,
-    injectAs: 'system_note',     // 'system_note' | 'user_note' | 'post_history_instruct'
 });
 
 // ---------------------------------------------------------------------------
@@ -31,16 +30,88 @@ function loadSettings() {
     }
     const s = extension_settings[MODULE_NAME];
     for (const key of Object.keys(DEFAULT_SETTINGS)) {
-        if (!Object.hasOwn(s, key)) {
-            s[key] = DEFAULT_SETTINGS[key];
-        }
+        if (!Object.hasOwn(s, key)) s[key] = DEFAULT_SETTINGS[key];
     }
+    if (!Array.isArray(s.presets)) s.presets = [];
     return s;
 }
 
+function escHtml(str) {
+    const d = document.createElement('div');
+    d.appendChild(document.createTextNode(String(str)));
+    return d.innerHTML;
+}
+
+function uid() {
+    return 'p_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+}
+
+const getCtx = () => getContext();
+
+// ---------------------------------------------------------------------------
+// Interceptor  (global, registered via manifest.json)
+// ---------------------------------------------------------------------------
+
+globalThis.guidedRepliesInterceptor = async function (chat, contextSize, abort, type) {
+    const s = loadSettings();
+    if (!s.enabled) return;
+    if (!s.prompt || !s.prompt.trim()) return;
+    if (type === 'quiet') return;
+
+    const guidance = s.prompt.trim();
+    const isRegen = s.mode === 'regenerate' || type === 'regenerate' || type === 'swipe';
+
+    let injectText;
+    if (isRegen) {
+        const firstMsg = chat.length > 0 ? chat[0] : null;
+        const firstText = firstMsg
+            ? `"${(firstMsg.mes || '').replace(/"/g, '\\"').slice(0, 600)}"`
+            : '(no earlier messages)';
+
+        injectText = [
+            `[System: Regeneration Guidance]`,
+            ``,
+            `The **first message** in this chat serves as the quality and style reference:`,
+            firstText,
+            ``,
+            `The user has provided the following guidance for fixing the current response:`,
+            guidance,
+            ``,
+            `Please regenerate the last AI response following this guidance.`,
+            `Match the tone, style, and quality of the first message.`,
+        ].join('\n');
+    } else {
+        injectText = [
+            `[System: Response Guidance]`,
+            ``,
+            `The user provides the following guidance for your response:`,
+            guidance,
+        ].join('\n');
+    }
+
+    const note = {
+        is_user: false,
+        is_system: true,
+        name: 'Guidance',
+        send_date: Date.now(),
+        mes: injectText,
+        extra: { guidedReplies: { mode: isRegen ? 'regenerate' : 'send' } },
+    };
+
+    if (chat.length > 0) {
+        chat.splice(chat.length - 1, 0, note);
+    } else {
+        chat.push(note);
+    }
+};
+
+// ---------------------------------------------------------------------------
+// UI — Sync
+// ---------------------------------------------------------------------------
+
 function updateUIFromSettings() {
     const s = loadSettings();
-    $('#gr-toggle').prop('checked', s.enabled).trigger('input');
+    $('#gr-toggle').prop('checked', s.enabled);
     $('#gr-mode-send').prop('checked', s.mode === 'send');
     $('#gr-mode-regen').prop('checked', s.mode === 'regenerate');
     $('#gr-prompt').val(s.prompt);
@@ -50,23 +121,41 @@ function updateUIFromSettings() {
 
 function updateCompactBar() {
     const s = loadSettings();
-    const $bar = $('#gr-compact-bar');
+    const $bar = $('.gr-compact-bar');
     if (!$bar.length) return;
     $bar.toggleClass('gr-active', s.enabled);
     $bar.find('.gr-compact-toggle')
         .toggleClass('fa-toggle-on', s.enabled)
         .toggleClass('fa-toggle-off', !s.enabled);
-    const modeLabel = s.mode === 'send' ? '🗨️' : '🔄';
-    $bar.find('.gr-compact-mode').text(modeLabel);
-    // Show truncated prompt as badge
+    $bar.find('.gr-compact-mode').text(s.mode === 'send' ? '🗨️' : '🔄');
+
     const $badge = $bar.find('.gr-compact-badge');
+    const $inlineInput = $bar.find('.gr-compact-input');
     if (s.enabled && s.prompt) {
-        const truncated = s.prompt.length > 40 ? s.prompt.slice(0, 40) + '…' : s.prompt;
+        const truncated = s.prompt.length > 55 ? s.prompt.slice(0, 55) + '…' : s.prompt;
         $badge.text(truncated).show();
+        $inlineInput.hide();
     } else {
         $badge.hide();
+        if (s.enabled) {
+            $inlineInput.show().focus();
+        } else {
+            $inlineInput.hide();
+        }
+    }
+
+    // Show preset name if active
+    const $presetName = $bar.find('.gr-compact-preset');
+    if (s.activePreset) {
+        $presetName.text('📁 ' + s.activePreset).show();
+    } else {
+        $presetName.hide();
     }
 }
+
+// ---------------------------------------------------------------------------
+// UI — Presets
+// ---------------------------------------------------------------------------
 
 function renderPresets() {
     const s = loadSettings();
@@ -74,37 +163,30 @@ function renderPresets() {
     if (!$container.length) return;
     $container.empty();
 
-    // "No preset" option
-    const $none = $(`<div class="gr-preset-item gr-preset-none ${!s.activePreset ? 'gr-preset-active' : ''}">
-        <span class="gr-preset-name">— No preset —</span>
-    </div>`);
-    $none.on('click', () => {
-        const s2 = loadSettings();
-        s2.activePreset = null;
-        s2.prompt = '';
-        saveSettingsDebounced();
-        updateUIFromSettings();
-    });
+    // "No preset" (clear)
+    const $none = $(`
+        <div class="gr-preset-item gr-preset-none ${!s.activePreset ? 'gr-preset-active' : ''}">
+            <span class="gr-preset-name">— No preset —</span>
+        </div>
+    `);
+    $none.on('click', () => applyPreset(null));
     $container.append($none);
 
     (s.presets || []).forEach((p, i) => {
-        const $item = $(`<div class="gr-preset-item ${s.activePreset === p.name ? 'gr-preset-active' : ''}">
-            <span class="gr-preset-name">${escHtml(p.name)}</span>
-            <div class="gr-preset-actions">
-                <span class="gr-preset-apply" title="Apply">▶</span>
-                <span class="gr-preset-del" title="Delete">✕</span>
+        const active = s.activePreset === p.name;
+        const $item = $(`
+            <div class="gr-preset-item ${active ? 'gr-preset-active' : ''}">
+                <span class="gr-preset-name">${escHtml(p.name)}</span>
+                <span class="gr-preset-mode-badge">${p.mode === 'send' ? '🗨️' : '🔄'}</span>
+                <div class="gr-preset-actions">
+                    <span class="gr-preset-apply" title="Apply this preset">▶</span>
+                    <span class="gr-preset-del" title="Delete">✕</span>
+                </div>
             </div>
-        </div>`);
+        `);
         $item.find('.gr-preset-apply').on('click', (e) => {
             e.stopPropagation();
-            const s2 = loadSettings();
-            s2.activePreset = p.name;
-            s2.prompt = p.prompt || '';
-            s2.mode = p.mode || 'send';
-            s2.enabled = true;
-            saveSettingsDebounced();
-            updateUIFromSettings();
-            toastr.success(`Applied preset: ${p.name}`);
+            applyPreset(p.name);
         });
         $item.find('.gr-preset-del').on('click', (e) => {
             e.stopPropagation();
@@ -123,144 +205,184 @@ function renderPresets() {
     });
 }
 
-function escHtml(str) {
-    const div = document.createElement('div');
-    div.appendChild(document.createTextNode(str));
-    return div.innerHTML;
+function applyPreset(name) {
+    const s = loadSettings();
+    if (name === null) {
+        s.activePreset = null;
+        s.prompt = '';
+        s.enabled = false;
+    } else {
+        const p = s.presets.find(x => x.name === name);
+        if (!p) {
+            toastr.warning(`Preset "${name}" not found`);
+            return;
+        }
+        s.activePreset = p.name;
+        s.prompt = p.prompt || '';
+        s.mode = p.mode || 'send';
+        s.enabled = true;
+        toastr.success(`Applied preset: ${p.name}`);
+    }
+    saveSettingsDebounced();
+    updateUIFromSettings();
+}
+
+async function saveCurrentAsPreset(name) {
+    const s = loadSettings();
+    if (s.presets.find(p => p.name === name)) {
+        toastr.warning(`Preset "${name}" already exists`);
+        return false;
+    }
+    s.presets.push({
+        id: uid(),
+        name,
+        prompt: s.prompt || '',
+        mode: s.mode || 'send',
+    });
+    saveSettingsDebounced();
+    renderPresets();
+    toastr.success(`Saved preset: ${name}`);
+    return true;
 }
 
 // ---------------------------------------------------------------------------
-// Prompt Interceptor  (registered via manifest.json)
-// ---------------------------------------------------------------------------
-// Runs before every generation.  We manipulate the `chat` array to inject
-// guidance as a synthetic system message.
-
-globalThis.guidedRepliesInterceptor = async function (chat, contextSize, abort, type) {
-    const s = loadSettings();
-    if (!s.enabled) return;
-    if (!s.prompt || !s.prompt.trim()) return;
-    // Skip quiet prompts (background generations, summaries, etc.)
-    if (type === 'quiet') return;
-
-    const guidance = s.prompt.trim();
-    const isRegen = s.mode === 'regenerate' || type === 'regenerate' || type === 'swipe';
-
-    let injectText = '';
-    let modeLabel = '';
-
-    if (isRegen) {
-        modeLabel = 'regenerate';
-        // First message = quality / style gold standard
-        const firstMsg = chat.length > 0 ? chat[0] : null;
-        const firstText = firstMsg
-            ? `"${(firstMsg.mes || '').replace(/"/g, '\\"').slice(0, 600)}"`
-            : '(no earlier messages)';
-
-        // Last AI response being regenerated
-        let lastAiMes = '(none)';
-        for (let i = chat.length - 1; i >= 0; i--) {
-            if (!chat[i].is_user && chat[i].name !== 'Guidance' && chat[i].name !== 'System Note') {
-                lastAiMes = (chat[i].mes || '').slice(0, 500);
-                break;
-            }
-        }
-
-        injectText = [
-            `[System: Regeneration Guidance]`,
-            ``,
-            `The **first message** in this chat serves as the quality and style reference:`,
-            firstText,
-            ``,
-            `The user has provided the following guidance for fixing the current response:`,
-            guidance,
-            ``,
-            `Please regenerate the last AI response following this guidance.`,
-            `Match the tone, style, and quality of the first message.`,
-        ].join('\n');
-    } else {
-        modeLabel = 'send';
-        injectText = [
-            `[System: Response Guidance]`,
-            ``,
-            `The user provides the following guidance for your response:`,
-            guidance,
-        ].join('\n');
-    }
-
-    // Build the synthetic message and inject it
-    const note = {
-        is_user: false,
-        is_system: true,
-        name: 'Guidance',
-        send_date: Date.now(),
-        mes: injectText,
-        extra: { guidedReplies: { mode: modeLabel } },
-    };
-
-    // Insert so the AI sees it right before the last user prompt
-    // (last message index = chat.length - 1; insert before it)
-    if (chat.length > 0) {
-        chat.splice(chat.length - 1, 0, note);
-    } else {
-        chat.push(note);
-    }
-
-    console.debug(`[Guided Replies] Injected ${modeLabel} guidance:`, guidance.slice(0, 100));
-};
-
-// ---------------------------------------------------------------------------
-// UI Setup
+// Slash Commands
 // ---------------------------------------------------------------------------
 
-async function injectQuickBar() {
-    if ($('#gr-compact-bar').length) return;  // already injected
+async function registerSlashCommands() {
+    const ctx = getCtx();
+    if (!ctx.SlashCommandParser || !ctx.SlashCommand) return;
 
-    try {
-        const html = await $.get(`${EXTENSION_FOLDER}/settings.html`);
-        // Extract just the compact-bar fragment
-        const $frag = $(html);
-        const $bar = $frag.filter('#gr-compact-bar-template').length
-            ? $frag.filter('#gr-compact-bar-template')
-            : $frag.find('#gr-compact-bar-template');
+    const { SlashCommandParser, SlashCommand, SlashCommandNamedArgument, SlashCommandArgument, ARGUMENT_TYPE } = ctx;
 
-        if ($bar.length) {
-            const $barContent = $bar.children().clone();
-            $barContent.attr('id', 'gr-compact-bar');
-            $barContent.removeAttr('id'); // ensure no duplicate id
-            // Insert above the send form
-            const $target = $('#send_form');
-            if ($target.length) {
-                $target.before($barContent);
-            } else {
-                // fallback: after the chat log
-                $('#chat').after($barContent);
-            }
-        }
-    } catch (err) {
-        // Quick-bar is optional; silently fall back
-        console.debug('[Guided Replies] Could not inject compact bar (non-fatal):', err);
-    }
+    // /guide <text>         — set guidance prompt on the fly
+    // /guide off            — disable guidance
+    // /guide preset <name>  — apply a saved preset
+    // /guide save <name>    — save current prompt+mode as preset
+    SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+        name: 'guide',
+        callback: (namedArgs, unnamedArgs) => {
+            const text = unnamedArgs.toString().trim();
+            if (!text) return 'Usage: /guide <prompt>  |  /guide off  |  /guide preset <name>  |  /guide save <name>';
 
-    // Wire compact bar
-    const $bar = $('#gr-compact-bar');
-    if ($bar.length) {
-        $bar.on('click', '.gr-compact-toggle', () => {
             const s = loadSettings();
-            s.enabled = !s.enabled;
+
+            if (text === 'off' || text === 'disable') {
+                s.enabled = false;
+                s.activePreset = null;
+                saveSettingsDebounced();
+                updateUIFromSettings();
+                return 'Guidance disabled.';
+            }
+
+            if (text.startsWith('preset ')) {
+                const name = text.slice(7).trim();
+                if (!name) return 'Specify a preset name: /guide preset <name>';
+                const p = s.presets.find(x => x.name === name);
+                if (!p) return `Preset "${name}" not found. Available: ${s.presets.map(x => x.name).join(', ') || 'none'}`;
+                applyPreset(name);
+                return `Applied preset "${name}".`;
+            }
+
+            if (text.startsWith('save ')) {
+                const name = text.slice(5).trim();
+                if (!name) return 'Specify a name: /guide save <name>';
+                saveCurrentAsPreset(name);
+                return `Saved as preset "${name}".`;
+            }
+
+            // Set custom prompt inline
+            s.prompt = text;
+            s.enabled = true;
+            s.activePreset = null;
             saveSettingsDebounced();
             updateUIFromSettings();
-            toastr.info(s.enabled ? 'Guidance ON' : 'Guidance OFF');
-        });
-        $bar.on('click', '.gr-compact-open', () => {
-            // Open the extensions settings drawer for Guided Replies
-            // Trigger click on the inline-drawer toggle
-            const $drawerToggle = $('#gr-settings-drawer .inline-drawer-toggle');
-            if ($drawerToggle.length) {
-                $drawerToggle[0].click();
-                // Scroll into view
-                $drawerToggle[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
+            const preview = text.length > 120 ? text.slice(0, 120) + '…' : text;
+            return `Guidance set: "${preview}"`;
+        },
+        unnamedArgumentList: [
+            SlashCommandArgument.fromProps({
+                description: 'Guidance text, or: off | preset <name> | save <name>',
+                typeList: ARGUMENT_TYPE.STRING,
+                isRequired: true,
+            }),
+        ],
+        helpString: `
+            <div><strong>Guide the AI response</strong></div>
+            <ul>
+                <li><code>/guide Make her speak formally</code> — set prompt and enable</li>
+                <li><code>/guide off</code> — disable guidance</li>
+                <li><code>/guide preset Victorian</code> — load a saved preset</li>
+                <li><code>/guide save MyPrompt</code> — save current prompt+mode as a preset</li>
+            </ul>
+        `,
+    }));
+}
+
+// ---------------------------------------------------------------------------
+// UI — Compact Bar (above send)
+// ---------------------------------------------------------------------------
+
+async function injectCompactBar() {
+    if ($('.gr-compact-bar').length) return;
+
+    const $bar = $(`
+        <div class="gr-compact-bar">
+            <span class="gr-compact-toggle fa-solid fa-toggle-off" title="Toggle guidance"></span>
+            <span class="gr-compact-mode" title="Current mode">🗨️</span>
+            <span class="gr-compact-preset" style="display:none"></span>
+            <span class="gr-compact-badge" style="display:none" title="Active guidance prompt"></span>
+            <div class="gr-compact-input-wrap" style="display:none">
+                <input type="text" class="gr-compact-input" placeholder="Type guidance and press Enter…"
+                       maxlength="500" />
+            </div>
+            <span class="gr-compact-open" title="Open settings"><i class="fa-solid fa-gear"></i></span>
+        </div>
+    `);
+
+    // Events
+    $bar.on('click', '.gr-compact-toggle', () => {
+        const s = loadSettings();
+        s.enabled = !s.enabled;
+        s.activePreset = null;
+        saveSettingsDebounced();
+        updateUIFromSettings();
+        toastr.info(s.enabled ? 'Guidance ON' : 'Guidance OFF');
+    });
+
+    $bar.on('click', '.gr-compact-open', () => {
+        const $toggle = $('#gr-settings-drawer .inline-drawer-toggle');
+        if ($toggle.length) {
+            $toggle[0].click();
+            $toggle[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+    });
+
+    // Inline input: Enter to submit
+    $bar.on('keydown', '.gr-compact-input', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            const val = $(e.target).val().trim();
+            if (val) {
+                const s = loadSettings();
+                s.prompt = val;
+                s.enabled = true;
+                s.activePreset = null;
+                saveSettingsDebounced();
+                updateUIFromSettings();
+                toastr.success('Guidance updated from quick bar');
             }
-        });
+        }
+    });
+
+    // Insert before send form
+    const $target = $('#send_form');
+    if ($target.length) {
+        $target.before($bar);
+    } else {
+        // Fallback: use the chat wrapper
+        const $chat = $('#chat');
+        if ($chat.length) $chat.after($bar);
     }
 }
 
@@ -268,27 +390,24 @@ async function injectQuickBar() {
 // Lifecycle
 // ---------------------------------------------------------------------------
 
-// On extension activation (page load)
 jQuery(async () => {
-    // Register settings panel HTML
-    const settingsHtml = await $.get(`${EXTENSION_FOLDER}/settings.html`);
-    // Extract settings drawer (everything except the compact-bar template)
-    const $all = $(settingsHtml);
-    const $drawer = $all.filter('.gr-settings-drawer').length
-        ? $all.filter('.gr-settings-drawer')
-        : $all.find('.gr-settings-drawer');
+    // 1. Load and append settings panel
+    const html = await $.get(`${EXTENSION_FOLDER}/settings.html`);
+    const $all = $(html);
+    // Extract main drawer from the HTML (first top-level element)
+    const $drawer = $all.filter('.gr-settings-drawer');
     if ($drawer.length) {
         $drawer.attr('id', 'gr-settings-drawer');
         $('#extensions_settings2').append($drawer);
     } else {
-        // fallback: append everything
         $('#extensions_settings2').append($all);
     }
 
-    // Wire settings UI events
+    // 2. Wire settings events
     $(document).on('input', '#gr-toggle', function () {
         const s = loadSettings();
         s.enabled = Boolean($(this).prop('checked'));
+        s.activePreset = null;
         saveSettingsDebounced();
         updateCompactBar();
     });
@@ -303,46 +422,33 @@ jQuery(async () => {
     $(document).on('input', '#gr-prompt', function () {
         const s = loadSettings();
         s.prompt = $(this).val();
+        if (s.prompt.trim()) s.activePreset = null;
         saveSettingsDebounced();
         updateCompactBar();
     });
 
-    // Save preset
     $(document).on('click', '#gr-save-preset', async function () {
-        const s = loadSettings();
-        const { Popup, POPUP_TYPE, POPUP_RESULT } = getContext();
-        const name = await Popup.show.input(
-            'Save Preset',
-            'Enter a name for this preset:',
-            ''
-        );
-        if (!name) return;
-        if (s.presets.find(p => p.name === name)) {
-            toastr.warning(`Preset "${name}" already exists`);
-            return;
-        }
-        s.presets.push({
-            name,
-            prompt: s.prompt || '',
-            mode: s.mode || 'send',
-        });
-        saveSettingsDebounced();
-        renderPresets();
-        toastr.success(`Saved preset: ${name}`);
+        const { Popup } = getCtx();
+        const name = await Popup.show.input('Save Preset', 'Enter a name:', '');
+        if (name) await saveCurrentAsPreset(name);
     });
 
-    // Inject the compact quick-access bar above the send form
-    injectQuickBar();
+    // 3. Inject compact bar
+    await injectCompactBar();
 
-    // Initial UI sync
+    // 4. Register slash commands
+    try { await registerSlashCommands(); } catch (e) {
+        console.debug('[Guided Replies] Slash commands not available:', e);
+    }
+
+    // 5. Initial UI sync
     updateUIFromSettings();
 
-    console.debug('[Guided Replies] Extension loaded');
+    console.debug('[Guided Replies] Ready');
 });
 
-// Hooks for ST lifecycle
 export async function onActivate() {
-    // Already initialized via jQuery ready above
+    // nothing extra needed — jQuery ready handles it
 }
 
 export async function onInstall() {
